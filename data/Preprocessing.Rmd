@@ -1,0 +1,48 @@
+---
+title: "Preprocessing"
+author: "Haohong Zheng & Ziqing Li"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+## Preprocessing Function
+
+
+We write a function that loads a `.csv.gz` file from the `data/` directory, converts all `"\\N"` values to proper `NA`, and returns the resulting tibble.
+
+```{r preprocess-function}
+preprocess <- function(file_name) {
+  file_path <- paste0(file_name, ".csv.gz")
+  
+  table <- read_csv(file_path, na = c("", "NA", "\\N"), show_col_types = FALSE)
+  
+  return(table)
+}
+```
+
+## Load and Save All Tables
+
+We apply the preprocessing function to each of the sample `.csv.gz` files and save the results as `.rda` files.
+
+```{r load-and-save}
+gz_files <- list.files(".", pattern = "_sample\\.csv\\.gz$", full.names = FALSE)
+
+file_names <- str_replace(gz_files, "\\.csv\\.gz$", "")
+
+for (fn in file_names) {
+  table <- preprocess(fn)
+  write_rds(table, paste0(fn, ".rda"))
+  cat("Processed:", fn, "->", nrow(table), "rows,", ncol(table), "cols\n")
+}
+```
+
+```{r verify}
+list.files(".", pattern = "\\.rda$")
+```
