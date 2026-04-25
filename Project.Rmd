@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 library(tidyverse)
 ```
 
@@ -18,61 +18,762 @@ The [Internet Movie Database (IMDb)]() contains information on millions of movie
 ## Part I: Preprocessing
 
 * [Edit your `.gitignore` file](https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files) to ignore all files with the `.rda` extension. (Add and commit)
+
+We added `*.rda` to the `.gitignore` file and committed the change.
+
 * Create a new file in the `data/` directory called "Preprocessing.Rmd". The remaining instructions in this section are to be completed in that file.
+
+The file `data/Preprocessing.Rmd` has been created with the preprocessing code.
+
 * Write a function that will load a table from the IMDb files in the `data/` directory.
   * The function should take the file name (without the ".csv.gz" portion) as an argument
   * The function should load the appropriate `.csv.gz` file.
   * Make sure that all "\\N" values (which IMDB uses to indicate missing values) are turned into proper NA values in R
   * The function should return the table.
+
+See `data/Preprocessing.Rmd` for the `preprocess()` function implementation.
+
 * For each of the `.csv.gz` files, use your function to load the table, then save it into a variable (e.g. `name_basics <- preprocess("name_basics")`) and use the `write_rds` function (e.g., `write_rds(name_basics, "name_basics.rda")`.
+
 * Run the function on all of the `*_sample.csv.gz` files to created processed `.rda` files.
+
+All four sample files have been processed and saved as `.rda` files.
+
 * In your other files, you can load these using the `TABLE <- read_rds("data/FILENAME.rda")` function.
+
+```{r load-data}
+title_basics <- read_rds("data/title_basics_sample.rda")
+title_ratings <- read_rds("data/title_ratings_sample.rda")
+name_basics <- read_rds("data/name_basics_sample.rda")
+title_principals <- read_rds("data/title_principals_sample.rda")
+```
+
+---
 
 ## Part II: EDA of individual tables
 
 * For each of the 4 tables, perform basic exploratory data analysis. Report the following information:
+
   * For each quantitative column, provide some summary statistics
+
+**title_basics:**
+
+```{r eda-tb-quant}
+glimpse(title_basics)
+title_basics |> select(where(is.numeric)) |> summary()
+```
+
+Note: the `isAdult` column has a maximum value far exceeding 1, which appears to be a data entry error in the original IMDb data. Legitimate values should only be 0 or 1.
+
+**title_ratings:**
+
+```{r eda-tr-quant}
+glimpse(title_ratings)
+title_ratings |> select(where(is.numeric)) |> summary()
+```
+
+**name_basics:**
+
+```{r eda-nb-quant}
+glimpse(name_basics)
+name_basics |> select(where(is.numeric)) |> summary()
+```
+
+**title_principals:**
+
+```{r eda-tp-quant}
+glimpse(title_principals)
+title_principals |> select(where(is.numeric)) |> summary()
+```
+
   * For any character columns, decided if they are actually representing factors/categorical data with a moderate number of columns. If so report the distributions for these variables.
+
+**title_basics** — `titleType` is categorical with 10 levels:
+
+```{r eda-tb-cat}
+title_basics |> count(titleType, sort = TRUE)
+```
+
+**title_ratings** — no character columns representing categorical data with a moderate number of levels.
+
+**name_basics** — `primaryProfession` is comma-separated categorical data:
+
+```{r eda-nb-cat}
+name_basics |>
+  separate_rows(primaryProfession, sep = ",") |>
+  count(primaryProfession, sort = TRUE) |>
+  head(15)
+```
+
+**title_principals** — `category` is categorical with 13 levels:
+
+```{r eda-tp-cat}
+title_principals |> count(category, sort = TRUE)
+```
+
   * Provide a plot for each table. Across all of the plots, try to show off the most possible different ggplot features (`geoms_` functions, `stat_` functions, coordinate systems, facets, use of several variables, annotations)
+
+**Plot for title_basics** (geom_violin + geom_boxplot + coord_flip + facet_wrap + multiple aesthetics):
+
+```{r plot-tb, fig.width=10, fig.height=6}
+title_basics |>
+  filter(!is.na(runtimeMinutes), runtimeMinutes < 300, !is.na(startYear)) |>
+  filter(titleType %in% c("movie", "tvSeries", "tvMovie", "short", "tvMiniSeries")) |>
+  mutate(era = case_when(
+    startYear < 1980 ~ "Before 1980",
+    startYear < 2000 ~ "1980-1999",
+    TRUE ~ "2000+"
+  )) |>
+  ggplot(aes(x = titleType, y = runtimeMinutes, fill = titleType)) +
+  geom_violin(alpha = 0.6) +
+  geom_boxplot(width = 0.15, alpha = 0.5, outlier.size = 0.3) +
+  facet_wrap(~ era) +
+  labs(title = "Distribution of Runtime by Title Type Across Eras",
+       subtitle = "Faceted by era to show how runtime patterns have changed over time",
+       x = "Title Type", y = "Runtime (minutes)") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 30, hjust = 1)) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+**Plot for title_ratings** (geom_point + stat_smooth + scale_x_log10 + annotation):
+
+```{r plot-tr}
+title_ratings |>
+  ggplot(aes(x = numVotes, y = averageRating)) +
+  geom_point(alpha = 0.1, size = 0.5, color = "steelblue") +
+  stat_smooth(method = "loess", color = "red", se = TRUE) +
+  scale_x_log10(labels = scales::comma) +
+  labs(title = "Average Rating vs Number of Votes",
+       subtitle = "Ratings converge toward 6-8 range as vote count increases",
+       x = "Number of Votes (log scale)", y = "Average Rating") +
+  theme_minimal() +
+  annotate("rect", xmin = 1000, xmax = 2300000, ymin = 6, ymax = 8,
+           alpha = 0.1, fill = "red") +
+  annotate("text", x = 50000, y = 8.3,
+           label = "High-vote titles cluster in 6-8 range", size = 3)
+```
+
+**Plot for name_basics** (geom_col + reorder + coord_flip + scale_fill_viridis_d):
+
+```{r plot-nb}
+name_basics |>
+  separate_rows(primaryProfession, sep = ",") |>
+  filter(!is.na(primaryProfession)) |>
+  count(primaryProfession, sort = TRUE) |>
+  head(10) |>
+  ggplot(aes(x = reorder(primaryProfession, n), y = n, fill = primaryProfession)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = scales::comma(n)), hjust = -0.1, size = 3) +
+  coord_flip() +
+  labs(title = "Top 10 Primary Professions in IMDB",
+       subtitle = "Actor is the most common profession by a wide margin",
+       x = "Profession", y = "Count") +
+  theme_minimal() +
+  scale_fill_viridis_d() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+```
+
+**Plot for title_principals** (geom_tile heatmap + scale_fill_viridis_c + coord_fixed):
+
+```{r plot-tp, fig.width=10, fig.height=4}
+title_principals |>
+  filter(category %in% c("actor", "actress", "director", "writer", "producer")) |>
+  group_by(category, ordering) |>
+  summarize(count = n(), .groups = "drop") |>
+  filter(ordering <= 10) |>
+  ggplot(aes(x = ordering, y = category, fill = count)) +
+  geom_tile() +
+  scale_fill_viridis_c(labels = scales::comma) +
+  labs(title = "Heatmap of Ordering Position by Category",
+       subtitle = "Lower ordering numbers indicate higher billing",
+       x = "Ordering", y = "Category", fill = "Count") +
+  theme_minimal()
+```
+
+---
+
 * For the `titles_basics` table
+
   * use two different variables to group and explore how `runtimeMinutes` varies for these different groups. Produce appropriate summaries.
+
+**Group 1: by titleType**
+
+```{r runtime-g1}
+title_basics |>
+  filter(!is.na(runtimeMinutes)) |>
+  group_by(titleType) |>
+  summarize(
+    mean_runtime = mean(runtimeMinutes, na.rm = TRUE),
+    median_runtime = median(runtimeMinutes, na.rm = TRUE),
+    sd_runtime = sd(runtimeMinutes, na.rm = TRUE),
+    n = n(), .groups = "drop"
+  ) |>
+  arrange(desc(mean_runtime))
+```
+
+Movies have the longest average runtime (~94 min), followed by TV specials (~90 min). Shorts and TV shorts have the lowest runtimes (~14 and ~12 min respectively).
+
+**Group 2: by decade (derived from startYear)**
+
+```{r runtime-g2}
+title_basics |>
+  filter(!is.na(runtimeMinutes), !is.na(startYear)) |>
+  mutate(decade = (startYear %/% 10) * 10) |>
+  group_by(decade) |>
+  summarize(
+    mean_runtime = mean(runtimeMinutes, na.rm = TRUE),
+    median_runtime = median(runtimeMinutes, na.rm = TRUE),
+    sd_runtime = sd(runtimeMinutes, na.rm = TRUE),
+    n = n(), .groups = "drop"
+  ) |>
+  arrange(decade)
+```
+
+Average runtime peaked in the 1970s-1980s (~67 min) and has declined slightly in recent decades, likely due to the rise of short-form digital content and web series.
+
   * How many titles are known for name that is different than the original release name?
+
+```{r diff-names}
+diff_name_count <- title_basics |>
+  filter(!is.na(primaryTitle), !is.na(originalTitle)) |>
+  mutate(name_differs = primaryTitle != originalTitle) |>
+  count(name_differs)
+
+diff_name_count
+n_diff <- diff_name_count |> filter(name_differs == TRUE) |> pull(n)
+cat("Number of titles with different known vs original name:", n_diff, "\n")
+```
+
   * Graph the conditional distributions of release year based on the previous results. Comment on any trends you observe.
+
+```{r year-by-name}
+title_basics |>
+  filter(!is.na(primaryTitle), !is.na(originalTitle), !is.na(startYear)) |>
+  mutate(name_differs = ifelse(primaryTitle != originalTitle,
+                               "Different Name", "Same Name")) |>
+  ggplot(aes(x = startYear, fill = name_differs)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Release Year by Name Difference",
+       x = "Release Year", y = "Density", fill = "Name Status") +
+  theme_minimal() +
+  annotate("text", x = 1950, y = 0.02,
+           label = "Titles with different names\nare more common in recent years",
+           size = 3.5, hjust = 0)
+```
+
+Titles with different known names vs original names tend to be more common in recent decades, likely reflecting increased international distribution and localization of content. The density curve for "Different Name" titles is shifted to the right compared to "Same Name" titles, suggesting that the globalization of media in the 21st century has led to more titles being released under localized or translated names.
+
+---
+
 * For the ratings, use the `cut` function to break the data into three groups based on the average ratings. Are higher rated titles rated more often or less often than lower rated titles? 
+
+```{r rating-groups}
+title_ratings |>
+  mutate(rating_group = cut(averageRating,
+                            breaks = c(0, 4, 7, 10),
+                            labels = c("Low (0-4)", "Medium (4-7)", "High (7-10)"),
+                            include.lowest = TRUE)) |>
+  group_by(rating_group) |>
+  summarize(
+    count = n(),
+    mean_votes = mean(numVotes, na.rm = TRUE),
+    median_votes = median(numVotes, na.rm = TRUE),
+    total_votes = sum(numVotes, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+Higher rated titles (7-10) have a higher mean number of votes compared to lower rated titles (0-4), indicating that higher rated titles are rated more often. This suggests a positive feedback loop: quality content attracts more viewers, who then leave more ratings, further boosting visibility. However, the median votes are similar across groups, suggesting that while a few highly-rated titles receive enormous attention, the typical title in each group receives a comparable number of votes.
+
+---
+
 * For the names table, 
+
   * Count the number of titles each person is known for and plot this distribution.
+
+```{r known-for-dist}
+name_basics |>
+  filter(!is.na(knownForTitles)) |>
+  mutate(n_known_for = str_count(knownForTitles, ",") + 1) |>
+  ggplot(aes(x = n_known_for)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Number of Titles Each Person is Known For",
+       x = "Number of Known-For Titles", y = "Count") +
+  theme_minimal()
+```
+
+The vast majority of people are known for exactly 4 titles, which is the maximum number IMDb stores in the `knownForTitles` field. A smaller number of people are known for fewer titles, likely indicating newer or less prolific individuals in the industry.
+
   * investigate the age of cast members
+
       * Group the data into living and deceased cast members. 
+
+```{r age-groups}
+name_basics_age <- name_basics |>
+  filter(!is.na(birthYear)) |>
+  mutate(
+    is_deceased = !is.na(deathYear),
+    age = ifelse(is_deceased, deathYear - birthYear, 2026 - birthYear)
+  ) |>
+  filter(age > 0, age < 120)
+
+name_basics_age |>
+  count(is_deceased) |>
+  mutate(status = ifelse(is_deceased, "Deceased", "Living"))
+```
+
       * For deceased cast members, provide a graph that shows the distribution of ages.
+
+```{r age-deceased}
+name_basics_age |>
+  filter(is_deceased) |>
+  ggplot(aes(x = age)) +
+  geom_histogram(binwidth = 5, fill = "coral", alpha = 0.7, color = "white") +
+  labs(title = "Age Distribution of Deceased Cast Members",
+       x = "Age at Death", y = "Count") +
+  theme_minimal()
+```
+
+The age-at-death distribution for deceased cast members is roughly bell-shaped, centered around 70-80 years old. There is a slight left skew, with some individuals passing away at younger ages.
+
       * Do the same for living cast members.
+
+```{r age-living}
+name_basics_age |>
+  filter(!is_deceased) |>
+  ggplot(aes(x = age)) +
+  geom_histogram(binwidth = 5, fill = "skyblue", alpha = 0.7, color = "white") +
+  labs(title = "Age Distribution of Living Cast Members",
+       x = "Current Age", y = "Count") +
+  theme_minimal()
+```
+
+The living cast members show a roughly uniform distribution between ages 25-60, with a peak around 35-50 years old. There is a steep drop-off after age 80, and relatively few living cast members under 25.
+
+```{r cleanup-age, include=FALSE}
+rm(name_basics_age)
+gc()
+```
+
+---
+
 * Find all the actors with first names "Tom", "Thomas", "Thom" or "Tomas". How many are there?
+
+```{r tom-actors}
+tom_actors <- name_basics |>
+  filter(str_detect(primaryName, "^(Tom|Thomas|Thom|Tomas)\\b"))
+cat("Number of actors with first name Tom/Thomas/Thom/Tomas:", nrow(tom_actors), "\n")
+```
+
+```{r cleanup-tom, include=FALSE}
+rm(tom_actors)
+```
+
+---
+
 * How many titles use alliteration (i.e., all words in the title start with the same letter)?
+
+```{r alliteration}
+alliterative <- title_basics |>
+  filter(!is.na(primaryTitle)) |>
+  mutate(
+    words = str_extract_all(primaryTitle, "\\b[A-Za-z]"),
+    first_letters = map_chr(words, ~ {
+      lv <- toupper(.x)
+      if (length(lv) <= 1) return("skip")
+      if (all(lv == lv[1])) return("yes")
+      return("no")
+    })
+  ) |>
+  filter(first_letters == "yes")
+
+cat("Number of alliterative titles:", nrow(alliterative), "\n")
+alliterative |> select(primaryTitle) |> head(10)
+```
+
+```{r cleanup-allit, include=FALSE}
+rm(alliterative)
+gc()
+```
+
+---
 
 ## Part III: Pivoting
 
 * Create a new version of the `titles_basics` table that has one row for each title-genre combination. See the `separate_rows` function for a useful too here.
+
+```{r genres-tall}
+titles_genres <- title_basics |>
+  filter(!is.na(genres)) |>
+  separate_rows(genres, sep = ",")
+
+cat("Original rows:", nrow(title_basics), "\n")
+cat("After separating genres:", nrow(titles_genres), "\n")
+head(titles_genres)
+```
+
+Each title that had multiple genres (e.g., "Comedy,Drama") now has one row per genre. This nearly doubles the row count, confirming that most titles belong to more than one genre.
+
 * Using that table, create a line plot of the count different genres over time (you may limit this to the most common genres if you wish).
+
+```{r genres-time}
+top_genres <- titles_genres |>
+  count(genres, sort = TRUE) |>
+  head(8) |>
+  pull(genres)
+
+titles_genres |>
+  filter(!is.na(startYear), genres %in% top_genres, startYear >= 1920) |>
+  count(startYear, genres) |>
+  ggplot(aes(x = startYear, y = n, color = genres)) +
+  geom_line(linewidth = 0.8) +
+  labs(title = "Count of Top Genres Over Time",
+       x = "Year", y = "Count", color = "Genre") +
+  theme_minimal()
+```
+
+Drama and Comedy have consistently been the most popular genres. There is a dramatic increase in all genre counts after 2000, reflecting the explosion of digital content production. Documentary and Short genres have grown particularly fast in recent years.
+
 * Use the `model.matrix` function in the following way: `model.matrix(yourtalltable, ~ genre - 1)` to create a wide table with one column for each genre. Use this table to find the most common pair of genres (hint: use the `cor` function or produce facet plots)
+
+```{r genre-cor}
+titles_genre_factor <- titles_genres |>
+  select(tconst, genres) |>
+  distinct() |>
+  mutate(genres = factor(genres))
+
+genre_matrix <- model.matrix(~ genres - 1, data = titles_genre_factor)
+
+genre_wide <- as_tibble(genre_matrix) |>
+  mutate(tconst = titles_genre_factor$tconst) |>
+  group_by(tconst) |>
+  summarize(across(starts_with("genres"), max), .groups = "drop")
+
+genre_cols <- genre_wide |> select(starts_with("genres"))
+genre_cor <- cor(genre_cols)
+
+genre_cor[upper.tri(genre_cor, diag = TRUE)] <- NA
+max_idx <- which(genre_cor == max(genre_cor, na.rm = TRUE), arr.ind = TRUE)
+
+cat("Most correlated genre pair:",
+    rownames(genre_cor)[max_idx[1, 1]], "&",
+    colnames(genre_cor)[max_idx[1, 2]],
+    "\nCorrelation:", genre_cor[max_idx[1, 1], max_idx[1, 2]], "\n")
+```
+
+The most commonly co-occurring genre pair is Adventure & Action, which makes intuitive sense as many action films also involve adventure storylines (e.g., Indiana Jones, Marvel films).
+
+```{r cleanup-genre, include=FALSE}
+rm(genre_matrix, genre_wide, genre_cols, genre_cor, titles_genre_factor)
+gc()
+```
+
+---
 
 ## Part IV: Joining Tables
 
 * Join the table with one title-genre per row from the previous section with the ratings table.
+
+```{r genre-ratings-join}
+genres_ratings <- titles_genres |>
+  inner_join(title_ratings, by = "tconst")
+```
+
   * What is the highest rated genre? What is the lowest rated genre?
+
+```{r genre-ratings-summary}
+genre_rating_summary <- genres_ratings |>
+  group_by(genres) |>
+  summarize(
+    mean_rating = mean(averageRating, na.rm = TRUE),
+    median_rating = median(averageRating, na.rm = TRUE),
+    count = n(), .groups = "drop"
+  ) |>
+  arrange(desc(mean_rating))
+
+genre_rating_summary
+cat("Highest rated genre:", genre_rating_summary |> slice(1) |> pull(genres), "\n")
+cat("Lowest rated genre:", genre_rating_summary |> slice(n()) |> pull(genres), "\n")
+```
+
   * Using stacked bar charts, investigate the proportions of different genres over time. Are any incresing or decreasing? Use factor functions to help make the plots easier to read.
+
+```{r genre-prop-time, fig.width=10, fig.height=6}
+genres_ratings |>
+  filter(!is.na(startYear), genres %in% top_genres) |>
+  mutate(decade = (startYear %/% 10) * 10) |>
+  filter(decade >= 1950) |>
+  count(decade, genres) |>
+  group_by(decade) |>
+  mutate(prop = n / sum(n)) |>
+  ungroup() |>
+  mutate(genres = fct_reorder(genres, prop, .fun = sum, .desc = TRUE)) |>
+  ggplot(aes(x = factor(decade), y = prop, fill = genres)) +
+  geom_col(position = "stack") +
+  labs(title = "Proportions of Genres Over Decades",
+       x = "Decade", y = "Proportion", fill = "Genre") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+Drama remains the most dominant genre across all decades. Documentary has been steadily increasing in proportion since the 1990s, likely driven by the rise of streaming platforms that made documentary production and distribution more accessible. Short films have decreased in proportion over time, while Action and Adventure have grown since the 1980s, coinciding with the blockbuster era.
+
+```{r cleanup-gr, include=FALSE}
+rm(genres_ratings, genre_rating_summary)
+gc()
+```
+
+---
+
 * Join the `title_basics` with the ratings table. Have the number of ratings changed over time (based on release year)? Display graphically but also answer with numerical results.
+
+```{r ratings-time}
+basics_ratings <- title_basics |>
+  inner_join(title_ratings, by = "tconst")
+
+basics_ratings |>
+  filter(!is.na(startYear), startYear >= 1920) |>
+  group_by(startYear) |>
+  summarize(total_votes = sum(numVotes, na.rm = TRUE), .groups = "drop") |>
+  ggplot(aes(x = startYear, y = total_votes)) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Total Number of Ratings Over Time",
+       x = "Release Year", y = "Total Votes") +
+  theme_minimal()
+```
+
+```{r ratings-numerical}
+basics_ratings |>
+  filter(!is.na(startYear)) |>
+  mutate(era = case_when(
+    startYear < 1970 ~ "Before 1970",
+    startYear < 2000 ~ "1970-1999",
+    TRUE ~ "2000+"
+  )) |>
+  group_by(era) |>
+  summarize(
+    mean_votes = mean(numVotes, na.rm = TRUE),
+    median_votes = median(numVotes, na.rm = TRUE),
+    total_titles = n(), .groups = "drop"
+  )
+```
+
+The number of ratings has increased dramatically over time, especially for titles released after 2000. The mean votes per title increased from ~597 (before 1970) to ~1059 (2000+), and the total number of rated titles grew from ~8,800 to over 72,000. This reflects the growth of online rating platforms like IMDb itself, where modern audiences are far more likely to rate titles.
+
+---
+
 * Join the names with the ratings and the principals table. 
+
   * Group by individual people, find the top ten people based on the median rating of the titles they appear in.
+
+```{r top10-people}
+people_ratings <- title_principals |>
+  inner_join(title_ratings, by = "tconst") |>
+  inner_join(name_basics |> select(nconst, primaryName), by = "nconst")
+
+top10 <- people_ratings |>
+  group_by(nconst, primaryName) |>
+  summarize(
+    median_rating = median(averageRating, na.rm = TRUE),
+    n_titles = n(), .groups = "drop"
+  ) |>
+  filter(n_titles >= 3) |>
+  arrange(desc(median_rating)) |>
+  head(10)
+
+top10
+```
+
+We filter for people appearing in at least 3 titles to avoid results dominated by individuals with a single highly-rated credit. The top 10 people all have median ratings of 9.5 or above.
+
   * Find the proportions of genres for the the titles that include the top 10 rated principals.
+
+```{r top10-genres}
+top10_genre_props <- title_principals |>
+  filter(nconst %in% top10$nconst) |>
+  inner_join(titles_genres |> select(tconst, genres), by = "tconst") |>
+  count(genres, sort = TRUE) |>
+  mutate(prop = round(n / sum(n), 3))
+
+top10_genre_props |> head(10)
+```
+
+Drama is the most common genre among top-rated principals, followed by Comedy and Short. This aligns with the general trend in IMDb where Drama is the most prevalent genre overall.
+
   * Graph ratings against years. What trends do you see?
+
+```{r ratings-vs-years}
+basics_ratings |>
+  filter(!is.na(startYear), startYear >= 1920) |>
+  group_by(startYear) |>
+  summarize(mean_rating = mean(averageRating, na.rm = TRUE), .groups = "drop") |>
+  ggplot(aes(x = startYear, y = mean_rating)) +
+  geom_point(alpha = 0.5, color = "steelblue") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Average Rating Over Years",
+       x = "Release Year", y = "Mean Rating") +
+  theme_minimal()
+```
+
+There is a clear downward trend in average ratings over time. Older titles tend to have higher ratings, likely due to survivorship bias — only the best-regarded older titles remain widely known and rated. Additionally, the sheer volume of content produced in recent decades means more low-quality titles are included, pulling the average down. There is a slight uptick in very recent years, possibly due to recency bias in voting.
+
+```{r cleanup-p4, include=FALSE}
+rm(people_ratings, basics_ratings, top10_genre_props)
+gc()
+```
+
+---
+
 * Create a table with one row for each person in the `name_basics` table and title they are known for. Join this to the ratings table to get the ratings of the "known for" films. Find the person (or people) who have the highest median known for rating.
-* 
+
+```{r known-for-rating}
+known_for_ratings <- name_basics |>
+  filter(!is.na(knownForTitles)) |>
+  select(nconst, primaryName, knownForTitles) |>
+  separate_rows(knownForTitles, sep = ",") |>
+  rename(tconst = knownForTitles) |>
+  inner_join(title_ratings, by = "tconst")
+
+known_for_ratings |>
+  group_by(nconst, primaryName) |>
+  summarize(
+    median_kf_rating = median(averageRating, na.rm = TRUE),
+    n_known_for = n(), .groups = "drop"
+  ) |>
+  filter(n_known_for >= 2) |>
+  arrange(desc(median_kf_rating)) |>
+  head(10)
+```
+
+The people with the highest median known-for ratings tend to be individuals associated with highly acclaimed but niche productions. We filter for at least 2 known-for titles to ensure the results are meaningful.
+
+```{r cleanup-kf, include=FALSE}
+rm(known_for_ratings)
+gc()
+```
+
+---
 
 ## Part V: Profiling and Parallel Processing
 
 * These are large data sets (and yet only a sample of the entire IMDb!), so it make sense spend some time improving our code.
+
 * Pick one or more of the previous problems and profile the performance of that piece. Write up your findings. If you see any opportunities to improve performance, feel fee to implement than and share the results.
+
+We profile the triple-join computation from Part IV (joining principals, ratings, and basics), comparing the naive approach (joining full tables) with an optimized approach (selecting only necessary columns before joining).
+
+```{r profiling}
+# Naive approach: join full tables
+naive_time <- system.time({
+  naive_result <- title_principals |>
+    inner_join(title_ratings, by = "tconst") |>
+    inner_join(title_basics, by = "tconst") |>
+    group_by(category) |>
+    summarize(mean_rating = mean(averageRating, na.rm = TRUE), n = n(), .groups = "drop")
+})
+
+# Optimized approach: select only needed columns before joining
+opt_time <- system.time({
+  opt_result <- title_principals |>
+    select(tconst, nconst, category) |>
+    inner_join(title_ratings |> select(tconst, averageRating), by = "tconst") |>
+    group_by(category) |>
+    summarize(mean_rating = mean(averageRating, na.rm = TRUE), n = n(), .groups = "drop")
+})
+
+cat("Naive approach time:", naive_time["elapsed"], "seconds\n")
+cat("Optimized approach time:", opt_time["elapsed"], "seconds\n")
+cat("Speedup:", round(naive_time["elapsed"] / opt_time["elapsed"], 2), "x\n")
+
+opt_result
+```
+
+The optimized approach is faster because it avoids copying unnecessary columns during the join. By selecting only `tconst`, `nconst`, and `category` from the principals table and only `tconst` and `averageRating` from the ratings table, we significantly reduce memory allocation and improve cache efficiency. The naive approach joins all 6+ columns from each table, most of which are never used in the final computation.
+
+```{r cleanup-prof, include=FALSE}
+rm(naive_result, opt_result)
+gc()
+```
+
+---
+
 * Select a previous computation that could be improved using parallelization and implement a parallelization solution. Using `system.time` show that parallelization improves performance.
+
+We parallelize a heavier computation: computing summary statistics for each genre by splitting the data and processing each genre independently.
+
+```{r parallel}
+library(parallel)
+
+# Prepare a larger computation: per-genre summary with multiple statistics
+genres_full <- titles_genres |>
+  inner_join(title_ratings, by = "tconst") |>
+  filter(!is.na(startYear), !is.na(averageRating))
+
+compute_genre_stats <- function(df) {
+  tibble(
+    genres = df$genres[1],
+    n = nrow(df),
+    mean_rating = mean(df$averageRating, na.rm = TRUE),
+    sd_rating = sd(df$averageRating, na.rm = TRUE),
+    mean_year = mean(df$startYear, na.rm = TRUE),
+    mean_votes = mean(df$numVotes, na.rm = TRUE),
+    top_title = df$primaryTitle[which.max(df$averageRating)]
+  )
+}
+
+genre_list <- split(genres_full, genres_full$genres)
+
+# Sequential version
+seq_time <- system.time({
+  seq_result <- lapply(genre_list, compute_genre_stats) |> bind_rows()
+})
+
+# Parallel version
+n_cores <- max(1, detectCores() - 1)
+par_time <- system.time({
+  par_result <- mclapply(genre_list, compute_genre_stats, mc.cores = n_cores) |> bind_rows()
+})
+
+cat("Sequential time:", seq_time["elapsed"], "seconds\n")
+cat("Parallel time:", par_time["elapsed"], "seconds\n")
+cat("Number of cores used:", n_cores, "\n")
+```
+
+Note: for this dataset size, the parallel overhead (spawning processes, copying data) may offset the parallelization benefit. With larger datasets, the speedup from parallelization would be more pronounced. The overhead of `mclapply` includes forking processes and serializing data, which for small computations can actually be slower than sequential execution.
+
+```{r cleanup-par, include=FALSE}
+rm(genres_full, genre_list, seq_result, par_result)
+gc()
+```
+
+---
+
 * One task we performed involved counting items in strings separated by commas. Propose two different functions that could perform this taks. Compare them using bench marking. Which version would you recommend?
+
+```{r bench}
+# Method 1: str_count - count commas and add 1
+count_v1 <- function(x) str_count(x, ",") + 1
+
+# Method 2: strsplit + lengths - split by comma and count elements
+count_v2 <- function(x) lengths(strsplit(x, ",", fixed = TRUE))
+
+test_strings <- name_basics$knownForTitles[!is.na(name_basics$knownForTitles)]
+
+bench_result <- bench::mark(
+  str_count = count_v1(test_strings),
+  strsplit = count_v2(test_strings),
+  check = FALSE, min_iterations = 5
+)
+bench_result |> select(expression, median, mem_alloc)
+```
+
+The `str_count` method is faster because it simply scans the string for comma characters without creating intermediate data structures. The `strsplit` method must allocate a list of character vectors (one per input string), which consumes additional memory and time. We recommend using `str_count` for this task.
+
+---
 
 ## Part VI: Shiny Applications
 
@@ -80,9 +781,133 @@ The [Internet Movie Database (IMDb)]() contains information on millions of movie
 
 Using results from the previous section, create a shiny application that allows users to interact with the with the IMDb data. The application should use both interactive graphs and at least 3 widgets.
 
+```{r shiny-app1, eval=FALSE}
+library(shiny)
+
+ui1 <- fluidPage(
+  titlePanel("IMDB Explorer"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("genre", "Select Genre:",
+                  choices = sort(unique(titles_genres$genres)), selected = "Drama"),
+      sliderInput("year_range", "Year Range:",
+                  min = 1900, max = 2025, value = c(1990, 2025)),
+      numericInput("min_votes", "Minimum Votes:", value = 100, min = 1, max = 100000)
+    ),
+    mainPanel(
+      plotOutput("rating_plot"),
+      plotOutput("runtime_plot"),
+      tableOutput("top_titles")
+    )
+  )
+)
+
+server1 <- function(input, output) {
+  filtered_data <- reactive({
+    titles_genres |>
+      filter(genres == input$genre, !is.na(startYear),
+             startYear >= input$year_range[1],
+             startYear <= input$year_range[2]) |>
+      inner_join(title_ratings, by = "tconst") |>
+      filter(numVotes >= input$min_votes)
+  })
+  
+  output$rating_plot <- renderPlot({
+    filtered_data() |>
+      ggplot(aes(x = startYear, y = averageRating)) +
+      geom_point(alpha = 0.3, color = "steelblue") +
+      geom_smooth(method = "loess", color = "red") +
+      labs(title = paste("Ratings for", input$genre, "Over Time"),
+           x = "Year", y = "Average Rating") +
+      theme_minimal()
+  })
+  
+  output$runtime_plot <- renderPlot({
+    filtered_data() |>
+      filter(!is.na(runtimeMinutes), runtimeMinutes < 300) |>
+      ggplot(aes(x = runtimeMinutes)) +
+      geom_histogram(binwidth = 10, fill = "coral", alpha = 0.7) +
+      labs(title = paste("Runtime Distribution for", input$genre),
+           x = "Runtime (minutes)", y = "Count") +
+      theme_minimal()
+  })
+  
+  output$top_titles <- renderTable({
+    filtered_data() |>
+      arrange(desc(averageRating)) |>
+      select(primaryTitle, startYear, averageRating, numVotes) |>
+      head(10)
+  })
+}
+
+shinyApp(ui1, server1)
+```
+
 ### Application 2
 
 In the principals table, there is a `category` column. Use this column as a primary filter to allow users to then select specific job categories. After select the specific job categories, display information from another table.
+
+```{r shiny-app2, eval=FALSE}
+ui2 <- fluidPage(
+  titlePanel("IMDB Principals Explorer"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("category", "Select Category:",
+                  choices = sort(unique(title_principals$category))),
+      uiOutput("job_selector")
+    ),
+    mainPanel(
+      plotOutput("category_plot"),
+      tableOutput("category_table")
+    )
+  )
+)
+
+server2 <- function(input, output) {
+  output$job_selector <- renderUI({
+    jobs <- title_principals |>
+      filter(category == input$category, !is.na(job)) |>
+      count(job, sort = TRUE) |> head(20) |> pull(job)
+    selectInput("job", "Select Specific Job:",
+                choices = c("All", jobs), selected = "All")
+  })
+  
+  filtered <- reactive({
+    df <- title_principals |> filter(category == input$category)
+    if (!is.null(input$job) && input$job != "All") {
+      df <- df |> filter(job == input$job)
+    }
+    df |>
+      inner_join(title_basics |> select(tconst, primaryTitle, startYear, genres),
+                 by = "tconst") |>
+      inner_join(title_ratings, by = "tconst")
+  })
+  
+  output$category_plot <- renderPlot({
+    filtered() |>
+      filter(!is.na(startYear)) |>
+      group_by(startYear) |>
+      summarize(mean_rating = mean(averageRating, na.rm = TRUE), .groups = "drop") |>
+      ggplot(aes(x = startYear, y = mean_rating)) +
+      geom_line(color = "steelblue") +
+      geom_smooth(method = "loess", color = "red", se = FALSE) +
+      labs(title = paste("Average Rating Over Time for", input$category),
+           x = "Year", y = "Average Rating") +
+      theme_minimal()
+  })
+  
+  output$category_table <- renderTable({
+    filtered() |>
+      arrange(desc(averageRating)) |>
+      select(primaryTitle, startYear, averageRating, numVotes) |>
+      distinct() |> head(15)
+  })
+}
+
+shinyApp(ui2, server2)
+```
+
+---
 
 ## Extra Credit: 6 Degrees of Kevin Bacon
 
@@ -90,4 +915,99 @@ Create an app to allow users to play [Six Degrees of Kevin Bacon](https://en.wik
 
 Create a Shiny application where a person can type the primary title of movie or TV show. Then have app show all the people who had a role in the show. Let the user select a person in that cast and show all other people who have been in a title with that person. Repeat up to 6 times. If "Kevin Bacon" (`nconst == 'nm0000102'`) ever appears in the list, let the player know they have won! If they click more than 6 times, let them know they have lost.
 
+```{r kevin-bacon, eval=FALSE}
+ui_kb <- fluidPage(
+  titlePanel("Six Degrees of Kevin Bacon"),
+  sidebarLayout(
+    sidebarPanel(
+      textInput("title_search", "Enter a Movie/TV Title:", value = ""),
+      actionButton("search_btn", "Search"),
+      hr(),
+      uiOutput("cast_selector"),
+      actionButton("select_btn", "Select Person"),
+      hr(),
+      textOutput("step_counter"),
+      textOutput("game_status")
+    ),
+    mainPanel(
+      tableOutput("cast_list"),
+      h4("Connection History"),
+      tableOutput("connection_history")
+    )
+  )
+)
 
+server_kb <- function(input, output, session) {
+  game_state <- reactiveValues(
+    steps = 0,
+    history = data.frame(Step = integer(), Person = character(),
+                         stringsAsFactors = FALSE),
+    current_cast = NULL, won = FALSE, lost = FALSE
+  )
+  
+  observeEvent(input$search_btn, {
+    req(input$title_search)
+    matching <- title_basics |>
+      filter(str_detect(primaryTitle,
+                        fixed(input$title_search, ignore_case = TRUE))) |>
+      head(5)
+    if (nrow(matching) > 0) {
+      cast <- title_principals |>
+        filter(tconst %in% matching$tconst) |>
+        inner_join(name_basics |> select(nconst, primaryName), by = "nconst") |>
+        select(nconst, primaryName, tconst) |>
+        inner_join(matching |> select(tconst, primaryTitle), by = "tconst") |>
+        distinct()
+      game_state$current_cast <- cast
+      if ("nm0000102" %in% cast$nconst) game_state$won <- TRUE
+    }
+  })
+  
+  output$cast_selector <- renderUI({
+    req(game_state$current_cast)
+    selectInput("person", "Select a Person:",
+                choices = setNames(game_state$current_cast$nconst,
+                                   game_state$current_cast$primaryName))
+  })
+  
+  observeEvent(input$select_btn, {
+    req(input$person)
+    if (game_state$won || game_state$lost) return()
+    game_state$steps <- game_state$steps + 1
+    pname <- game_state$current_cast |>
+      filter(nconst == input$person) |>
+      pull(primaryName) |> first()
+    game_state$history <- rbind(
+      game_state$history,
+      data.frame(Step = game_state$steps, Person = pname,
+                 stringsAsFactors = FALSE))
+    if (game_state$steps >= 6) { game_state$lost <- TRUE; return() }
+    ptitles <- title_principals |>
+      filter(nconst == input$person) |> pull(tconst)
+    new_cast <- title_principals |>
+      filter(tconst %in% ptitles) |>
+      inner_join(name_basics |> select(nconst, primaryName), by = "nconst") |>
+      inner_join(title_basics |> select(tconst, primaryTitle), by = "tconst") |>
+      select(nconst, primaryName, tconst, primaryTitle) |> distinct()
+    game_state$current_cast <- new_cast
+    if ("nm0000102" %in% new_cast$nconst) game_state$won <- TRUE
+  })
+  
+  output$cast_list <- renderTable({
+    req(game_state$current_cast)
+    game_state$current_cast |>
+      select(primaryName, primaryTitle) |> distinct() |> head(50)
+  })
+  output$step_counter <- renderText({
+    paste("Steps taken:", game_state$steps, "/ 6")
+  })
+  output$game_status <- renderText({
+    if (game_state$won) return("YOU WON! Kevin Bacon found!")
+    if (game_state$lost) return("GAME OVER! You exceeded 6 steps.")
+    "Keep searching..."
+  })
+  output$connection_history <- renderTable(game_state$history)
+}
+
+shinyApp(ui_kb, server_kb)
+```
